@@ -119,7 +119,6 @@ reply with a single JSON object only (no markdown), keys:
 
 
 def sentiment_AI(text: str, ticker: str | None = None) -> dict[str, Any]:
-<<<<<<< HEAD
     try:
         # Note: If this fails with 'choices', check sentiment_analysis.py 
         # and ensure you added time.sleep(1) in the loop!
@@ -130,74 +129,6 @@ def sentiment_AI(text: str, ticker: str | None = None) -> dict[str, Any]:
         return {"status": "ok", "results": all_results[:5]}
     except Exception as e:
         return {"status": "error", "message": str(e)}
-=======
-    """
-    Runs a separate Grok (xAI) chat completion dedicated to sentiment — independent of the main agent loop.
-    Model: XAI_SENTIMENT_MODEL (default: same family as main agent; override for a faster/cheaper Grok).
-    """
-    try:
-        client = build_client()
-    except ValueError as exc:
-        return {"status": "error", "message": str(exc)}
-
-    model = os.getenv("XAI_SENTIMENT_MODEL", "grok-4-1")
-    user_content = f"Ticker: {ticker or 'N/A'}\n\nText:\n{text}"
-
-    def _parse_payload(raw: str) -> dict[str, Any] | None:
-        raw = (raw or "").strip()
-        if not raw:
-            return None
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            return None
-
-    try:
-        try:
-            completion = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": SENTIMENT_SYSTEM},
-                    {"role": "user", "content": user_content},
-                ],
-                temperature=0.2,
-                response_format={"type": "json_object"},
-            )
-        except BadRequestError:
-            completion = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": SENTIMENT_SYSTEM},
-                    {"role": "user", "content": user_content},
-                ],
-                temperature=0.2,
-            )
-    except Exception as exc:
-        return {"status": "error", "message": f"{type(exc).__name__}: {exc}"}
-
-    raw = (completion.choices[0].message.content or "").strip()
-    parsed = _parse_payload(raw)
-    if not parsed:
-        return {
-            "status": "ok",
-            "ticker": ticker,
-            "sentiment": "neutral",
-            "summary": "",
-            "raw_response": raw,
-            "model": model,
-            "note": "Grok did not return valid JSON; see raw_response.",
-        }
-
-    return {
-        "status": "ok",
-        "ticker": ticker,
-        "sentiment": parsed.get("sentiment", "neutral"),
-        "score": parsed.get("score"),
-        "summary": parsed.get("summary", ""),
-        "model": model,
-    }
-
->>>>>>> 2ccc1c6ea569dd8647a77973ffcd36a9be885ea9
 
 TOOL_IMPL = {
     "db_req": db_req,
