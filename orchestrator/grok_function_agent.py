@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 
 try:
     from snowleopard import SnowLeopardClient
@@ -141,31 +141,80 @@ def db_req(human_query: str, data_top_size: int = 5) -> dict[str, Any]:
         return {"status": "error", "message": f"{type(exc).__name__}: {exc}"}
 
 
+SENTIMENT_SYSTEM = """
+You are a financial sentiment analyst. Given market-related text and an optional ticker,
+reply with a single JSON object only (no markdown), keys:
+- "sentiment": one of "positive", "neutral", "negative"
+- "score": number from -1.0 (very negative) to 1.0 (very positive)
+- "summary": one concise sentence suitable for a market report
+""".strip()
+
+
 def sentiment_AI(text: str, ticker: str | None = None) -> dict[str, Any]:
     """
-    Placeholder sentiment tool.
-    Replace this logic with your real sentiment model/service.
+    Runs a separate Grok (xAI) chat completion dedicated to sentiment — independent of the main agent loop.
+    Model: XAI_SENTIMENT_MODEL (default: same family as main agent; override for a faster/cheaper Grok).
     """
-    lowered = text.lower()
-    positive_words = {"beat", "growth", "upside", "bullish", "surge", "strong"}
-    negative_words = {"miss", "risk", "downside", "bearish", "drop", "weak"}
+    try:
+        client = build_client()
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
 
-    pos_hits = sum(1 for word in positive_words if word in lowered)
-    neg_hits = sum(1 for word in negative_words if word in lowered)
-    score = pos_hits - neg_hits
+    model = os.getenv("XAI_SENTIMENT_MODEL", "grok-4-1")
+    user_content = f"Ticker: {ticker or 'N/A'}\n\nText:\n{text}"
 
-    label = "neutral"
-    if score > 0:
-        label = "positive"
-    elif score < 0:
-        label = "negative"
+    def _parse_payload(raw: str) -> dict[str, Any] | None:
+        raw = (raw or "").strip()
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+
+    try:
+        try:
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SENTIMENT_SYSTEM},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.2,
+                response_format={"type": "json_object"},
+            )
+        except BadRequestError:
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "system", "content": SENTIMENT_SYSTEM},
+                    {"role": "user", "content": user_content},
+                ],
+                temperature=0.2,
+            )
+    except Exception as exc:
+        return {"status": "error", "message": f"{type(exc).__name__}: {exc}"}
+
+    raw = (completion.choices[0].message.content or "").strip()
+    parsed = _parse_payload(raw)
+    if not parsed:
+        return {
+            "status": "ok",
+            "ticker": ticker,
+            "sentiment": "neutral",
+            "summary": "",
+            "raw_response": raw,
+            "model": model,
+            "note": "Grok did not return valid JSON; see raw_response.",
+        }
 
     return {
         "status": "ok",
         "ticker": ticker,
-        "sentiment": label,
-        "score": score,
-        "note": "This is a baseline lexical scorer; swap with production sentiment model.",
+        "sentiment": parsed.get("sentiment", "neutral"),
+        "score": parsed.get("score"),
+        "summary": parsed.get("summary", ""),
+        "model": model,
     }
 
 
